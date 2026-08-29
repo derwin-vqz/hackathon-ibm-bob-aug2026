@@ -26,7 +26,7 @@ export default function App() {
       const params = new URLSearchParams({ repo: repoUrl.trim() });
       if (token.trim()) params.set('token', token.trim());
 
-      const res = await fetch(`/api/analyze?${params}`);
+      const res = await fetch(`/api/repo?${params}`);
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error ?? 'Unknown error');

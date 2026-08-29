@@ -1,3 +1,7 @@
+import AdmZip from "adm-zip";
+import { readdir, rm, readFile } from "node:fs/promises";
+import path from "node:path";
+
 /**
  * File dependency analyzer
  *
@@ -6,12 +10,31 @@
  * the graph shape returned to the client.
  */
 
+const OUTPUT_PATH = 'temp/';
+
+type DartProject = {
+    name: string;
+};
+
+type FileNode =
+    | {
+        name: string;
+        type: "file";
+        path: string;
+    }
+    | {
+        name: string;
+        type: "directory";
+        path: string;
+        children: FileNode[];
+    };
+
 export type NodeData = {
   id: string;         // relative file path, e.g. "src/utils/math.ts"
   label: string;      // short name displayed in the graph
   ext: string;        // file extension: ts, tsx, js, etc.
   imports: number;    // number of files this node imports
-  importedBy: number; // number of files that import this node
+  //importedBy: number; // number of files that import this node
 };
 
 export type EdgeData = {
@@ -25,13 +48,9 @@ export type GraphData = {
   truncated: boolean; // true when analysis was capped at the file limit
 };
 
-// Regex patterns capturing static/dynamic imports and require()
-// TS concept: RegExp with /g flag for multiple matches within the same string
-const IMPORT_PATTERNS = [
-  /import\s+(?:[\w*{},\s]+\s+from\s+)?['"]([^'"]+)['"]/g,    // import ... from '...'
-  /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,                     // require('...')
-  /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,                      // import('...') dinámico
-];
+
+// Regex patterns capturing static/dynamic imports
+const IMPORT_PATTERN = /^\s*import\s+['"]([^'"]+)['"]/gm;
 
 /**
  * Extracts all imported modules from a file's content.
@@ -39,114 +58,289 @@ const IMPORT_PATTERNS = [
  * external packages like 'react' or 'lodash' are ignored in the MVP.
  */
 function extractImports(content: string): string[] {
-  const found = new Set<string>();
+    const found = new Set<string>();
 
-  for (const pattern of IMPORT_PATTERNS) {
-    // Important: reset lastIndex before reusing a /g regex
-    pattern.lastIndex = 0;
+    IMPORT_PATTERN.lastIndex = 0;
+
     let match: RegExpExecArray | null;
-    while ((match = pattern.exec(content)) !== null) {
-      const importPath = match[1];
-      if (importPath.startsWith('.') || importPath.startsWith('/')) {
-        found.add(importPath);
-      }
-    }
-  }
 
-  return [...found];
+    while ((match = IMPORT_PATTERN.exec(content)) !== null) {
+        found.add(match[1]);
+    }
+
+    return [...found];
 }
 
-/**
- * Resolves a relative import path to its canonical path within the repo.
- * Example: from "src/components/Graph.tsx" importing "../utils/parse"
- * → resolves to "src/utils/parse"
- * Then checks whether a file with that base path exists in fileSet.
- */
 function resolveImport(
-  fromFile: string,
-  importPath: string,
-  fileSet: Set<string>
+    fromFile: string,
+    importPath: string,
+    projectName: string,
+    fileSet: Set<string>
 ): string | null {
-  // Build base path without extension
-  const fromDir = fromFile.split('/').slice(0, -1).join('/');
-  
-  // Resolve ../ and ./ segments
-  const parts = [...(fromDir ? fromDir.split('/') : []), ...importPath.split('/')];
-  const resolved: string[] = [];
-  for (const part of parts) {
-    if (part === '..') resolved.pop();
-    else if (part !== '.') resolved.push(part);
-  }
-  const basePath = resolved.join('/');
 
-  // Try candidate extensions when the import has no explicit extension
-  const candidates = [
-    basePath,
-    `${basePath}.ts`,
-    `${basePath}.tsx`,
-    `${basePath}.js`,
-    `${basePath}.jsx`,
-    `${basePath}/index.ts`,
-    `${basePath}/index.tsx`,
-    `${basePath}/index.js`,
-  ];
+    // Dart standard library
+    if (importPath.startsWith("dart:")) {
+        return null;
+    }
 
-  for (const c of candidates) {
-    if (fileSet.has(c)) return c;
-  }
-  return null;
+    // package: import
+    if (importPath.startsWith("package:")) {
+        const packagePath = importPath.slice("package:".length);
+
+        const [packageName, ...segments] = packagePath.split("/");
+
+        // External package
+        if (packageName !== projectName) {
+            return null;
+        }
+
+        const relativePath = path.posix.join(
+            "lib",
+            segments.join("/")
+        );
+
+        return resolveDartFile(relativePath, fileSet);
+    }
+
+    // Relative import
+    if (
+        importPath.startsWith("./") ||
+        importPath.startsWith("../")
+    ) {
+        const fromDir = path.posix.dirname(fromFile);
+
+        const resolvedPath = path.posix.normalize(
+            path.posix.join(fromDir, importPath)
+        );
+
+        return resolveDartFile(resolvedPath, fileSet);
+    }
+
+    return null;
 }
 
-/**
- * Main function: given a map of { path → content }, returns the graph.
- *
- * TS concept: `Map<K, V>` is a key→value structure with guaranteed types.
- * Safer than a plain object when keys are dynamic.
- */
-export function buildGraph(fileContents: Map<string, string>): GraphData {
-  const fileSet = new Set(fileContents.keys());
+function resolveDartFile(
+    importPath: string,
+    fileSet: Set<string>
+): string | null {
 
-  // Counters for node metrics
-  const importCounts = new Map<string, number>();     // how many files each node imports
-  const importedByCounts = new Map<string, number>(); // how many times each node is imported
+    const normalizedPath = importPath.endsWith(".dart")
+        ? importPath
+        : `${importPath}.dart`;
 
-  for (const path of fileSet) {
-    importCounts.set(path, 0);
-    importedByCounts.set(path, 0);
-  }
-
-  const edges: EdgeData[] = [];
-  const seenEdges = new Set<string>(); // prevent duplicate edges
-
-  for (const [filePath, content] of fileContents) {
-    const rawImports = extractImports(content);
-
-    for (const imp of rawImports) {
-      const resolved = resolveImport(filePath, imp, fileSet);
-      if (!resolved) continue;
-
-      const edgeKey = `${filePath}→${resolved}`;
-      if (seenEdges.has(edgeKey)) continue;
-      seenEdges.add(edgeKey);
-
-      edges.push({ source: filePath, target: resolved });
-      importCounts.set(filePath, (importCounts.get(filePath) ?? 0) + 1);
-      importedByCounts.set(resolved, (importedByCounts.get(resolved) ?? 0) + 1);
+    if (fileSet.has(normalizedPath)) {
+        return normalizedPath;
     }
-  }
 
-  const nodes: NodeData[] = [...fileSet].map((path) => {
-    const parts = path.split('/');
-    const filename = parts[parts.length - 1];
-    const ext = filename.includes('.') ? filename.split('.').pop()! : '';
+    return null;
+}
+
+export async function buildGraph(fileContents: Buffer<ArrayBuffer>): Promise<{name: string, shape: GraphData}> {
+    await extractBuffer(fileContents, OUTPUT_PATH);
+
+    const tree = await readDirectories(OUTPUT_PATH);
+
+    const repository = tree.find(
+        (node): node is Extract<FileNode, { type: "directory" }> =>
+            node.type === "directory"
+    );
+
+    if (!repository) {
+        throw new Error("Repository root not found");
+    }
+
+    const project = await readProject(repository.path);
+
+    //console.log("Project:", project.name);
+
+    const fileSet = new Set<string>();
+
+    collectFiles(
+        repository.children,
+        repository.path,
+        fileSet
+    );
+
+    const data = await processFiles(
+        repository.children,
+        repository.path,
+        project.name,
+        fileSet
+    );
+
+    //console.log(data);
+
     return {
-      id: path,
-      label: filename,
-      ext,
-      imports: importCounts.get(path) ?? 0,
-      importedBy: importedByCounts.get(path) ?? 0,
+      name: project.name,
+      shape: data
     };
-  });
+}
 
-  return { nodes, edges, truncated: fileSet.size >= 200 };
+async function processFiles(
+    nodes: FileNode[],
+    repositoryRoot: string,
+    projectName: string,
+    fileSet: Set<string>
+): Promise<GraphData> {
+
+    const nodesTree: NodeData[] = [];
+    const edgesTree: EdgeData[] = [];
+
+    for (const node of nodes) {
+        if (node.type === "directory") {
+            const data = await processFiles(
+                node.children,
+                repositoryRoot,
+                projectName,
+                fileSet
+            );
+
+            nodesTree.push(...data.nodes);
+            edgesTree.push(...data.edges);
+
+            continue;
+        }
+
+        if (!node.path.endsWith(".dart")) {
+            continue;
+        }
+
+        const content = await readFile(node.path, "utf-8");
+
+        const relativePath = path
+            .relative(repositoryRoot, node.path)
+            .split(path.sep)
+            .join("/");
+
+        const imports = extractImports(content);
+
+        const resolvedImports: string[] = [];
+
+        for (const importPath of imports) {
+          const target = resolveImport(
+              relativePath,
+              importPath,
+              projectName,
+              fileSet
+          );
+
+          if (!target) {
+              continue;
+          }
+
+          resolvedImports.push(target);
+
+          edgesTree.push({
+              source: relativePath,
+              target,
+          });
+        }
+
+        const myNode = generateNode(
+            relativePath,
+            imports.length
+        );
+
+        nodesTree.push(myNode);
+    }
+
+    return {
+        nodes: nodesTree,
+        edges: edgesTree,
+        truncated: false,
+    };
+}
+
+function collectFiles(
+    nodes: FileNode[],
+    repositoryRoot: string,
+    fileSet: Set<string>
+) {
+    for (const node of nodes) {
+        if (node.type === "directory") {
+            collectFiles(
+                node.children,
+                repositoryRoot,
+                fileSet
+            );
+            continue;
+        }
+
+        const relativePath = path
+            .relative(repositoryRoot, node.path)
+            .split(path.sep)
+            .join("/");
+
+        fileSet.add(relativePath);
+    }
+}
+
+function generateNode(
+    filePath: string,
+    importsNumber: number
+): NodeData {
+
+    const fileName = path.posix.basename(filePath);
+    const extension = path.posix.extname(fileName);
+
+    return {
+        id: filePath,
+        label: fileName.slice(
+            0,
+            fileName.length - extension.length
+        ),
+        ext: extension,
+        imports: importsNumber,
+    };
+}
+
+async function extractBuffer(buffer: Buffer, outputPath: string) {
+    await rm("./temp", { recursive: true, force: true });
+    const zip = new AdmZip(buffer);
+    zip.extractAllTo(outputPath, true);
+}
+
+async function readDirectories(directory: string): Promise<FileNode[]> {
+    const entries = await readdir(directory, {
+        withFileTypes: true,
+    });
+
+    const nodes: FileNode[] = [];
+
+    for (const entry of entries) {
+        const fullPath = path.join(directory, entry.name);
+
+        if (entry.isDirectory()) {
+            nodes.push({
+                name: entry.name,
+                type: "directory",
+                path: fullPath,
+                children: await readDirectories(fullPath),
+            });
+        } else {
+            nodes.push({
+                name: entry.name,
+                type: "file",
+                path: fullPath,
+            });
+        }
+    }
+
+    return nodes;
+}
+
+async function readProject(directory: string): Promise<DartProject> {
+    const pubspecPath = path.join(directory, "pubspec.yaml");
+
+    const content = await readFile(pubspecPath, "utf-8");
+
+    const match = content.match(/^\s*name:\s*([a-zA-Z0-9_-]+)/m);
+
+    if (!match) {
+        throw new Error("Could not find project name in pubspec.yaml");
+    }
+
+    return {
+        name: match[1],
+    };
 }

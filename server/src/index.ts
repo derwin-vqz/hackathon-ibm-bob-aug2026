@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { parseRepoUrl, getDefaultBranchSha, fetchRepoTree, fetchFileContent } from './github';
-import { downloadRepo } from './github-ingester';
+import { parseGitHubUrl, downloadRepo } from './github-ingester';
 import { buildGraph } from './analyzer';
 
 const app = express();
@@ -24,6 +24,8 @@ app.use(express.json());
  * Promise.all([p1, p2, p3]) waits for ALL of them at once —
  * much faster than awaiting them one by one.
  */
+
+/*
 app.get('/api/analyze', async (req, res) => {
   const repoUrl = req.query['repo'] as string | undefined;
   const token = req.query['token'] as string | undefined;
@@ -71,25 +73,27 @@ app.get('/api/analyze', async (req, res) => {
     res.status(500).json({ error: message });
   }
 });
+*/
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.get('/api/repo', async (_req, res) => {
+app.get('/api/repo', async (req, res) => {
+  const repoUrl = req.query['repo'] as string | undefined;
+  const token = req.query['token'] as string | undefined;
+
   try {
-    const owner = 'expressjs';
-    const repo = 'express';
-    const ref = 'HEAD';
-    console.log('paso 1 completado');
-    const fileContents = await downloadRepo(owner, repo, ref);  // ← await
+    if (!repoUrl) {
+      res.status(400).json({ error: '"repo" query parameter is required' });
+      return;
+    }
+    const { owner, repo, ref } = parseGitHubUrl(repoUrl);
+    const fileContents = await downloadRepo(owner, repo, ref, token);
+
+    const graph = await buildGraph(fileContents);
     
-    console.log('✅ Descargado:', fileContents);
-    
-    res.json({
-      success: true,
-      fileCount: fileContents
-    });
+    res.json(graph);
   } catch (err) {
     console.error('❌ Error:', err);
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
