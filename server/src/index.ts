@@ -1,3 +1,13 @@
+/**
+ * Code GPS — Express API server (port 3001).
+ *
+ * Single active endpoint:
+ *   GET /api/repo?repo=<github_url>[&token=<pat>]
+ *
+ * The server downloads the requested GitHub repository as a ZIP archive
+ * via github-ingester, then hands the buffer to the analyzer which
+ * extracts it, parses Dart imports, and returns a dependency graph.
+ */
 import express from 'express';
 import cors from 'cors';
 import { parseRepoUrl, getDefaultBranchSha, fetchRepoTree, fetchFileContent } from './github';
@@ -9,21 +19,6 @@ const PORT = 3001;
 
 app.use(cors());
 app.use(express.json());
-
-/**
- * GET /api/analyze?repo=<github_url>&token=<optional_pat>
- *
- * Flow:
- * 1. Parse the repo URL
- * 2. Get the HEAD SHA
- * 3. Download the file tree
- * 4. Download each file's content (in parallel, batches of 10)
- * 5. Build and return the graph
- *
- * TS concept: `async/await` + `Promise.all` for parallelism.
- * Promise.all([p1, p2, p3]) waits for ALL of them at once —
- * much faster than awaiting them one by one.
- */
 
 /*
 app.get('/api/analyze', async (req, res) => {
@@ -75,10 +70,23 @@ app.get('/api/analyze', async (req, res) => {
 });
 */
 
+/** Simple liveness probe used to verify the server is reachable. */
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+/**
+ * GET /api/repo?repo=<github_url>[&token=<pat>]
+ *
+ * Query parameters:
+ *   repo   — Full GitHub repository URL (required).
+ *             Supports https://github.com/{owner}/{repo}[/tree/{ref}]
+ *   token  — GitHub Personal Access Token (optional).
+ *             Increases the rate limit from 60 to 5 000 requests/hour.
+ *
+ * Response: GraphData JSON  { nodes, edges, truncated }
+ *           or { error: string } with an appropriate HTTP status code.
+ */
 app.get('/api/repo', async (req, res) => {
   const repoUrl = req.query['repo'] as string | undefined;
   const token = req.query['token'] as string | undefined;

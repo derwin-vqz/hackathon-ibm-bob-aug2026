@@ -1,21 +1,35 @@
+/**
+ * Dart dependency analyzer.
+ *
+ * Accepts a ZIP buffer (downloaded from GitHub), extracts it to a
+ * temporary directory, traverses the file tree, and builds a directed
+ * dependency graph by parsing `import` statements in every `.dart` file.
+ *
+ * TS concept: `type` is similar to `interface` but more flexible —
+ * it also works for unions, aliases, and mapped types.  Here we use it
+ * to describe the graph shape that is returned to the client.
+ */
+
 import AdmZip from "adm-zip";
 import { readdir, rm, readFile } from "node:fs/promises";
 import path from "node:path";
 
-/**
- * File dependency analyzer
- *
- * TS concept: `type` is similar to `interface` but more flexible —
- * it also works for unions, aliases, etc. Here we use it to describe
- * the graph shape returned to the client.
- */
-
+/** Temporary directory where the downloaded ZIP is extracted. */
 const OUTPUT_PATH = 'temp/';
 
+/** Minimal representation of a Dart project, read from pubspec.yaml. */
 type DartProject = {
     name: string;
 };
 
+/**
+ * Recursive tree node produced by `readDirectories`.
+ *
+ * TS concept: this is a *discriminated union* — the `type` field acts as
+ * a tag that lets TypeScript know which variant you have.  When you write
+ * `if (node.type === "directory")`, TypeScript narrows the type so you
+ * can safely access `node.children` without a cast.
+ */
 type FileNode =
     | {
         name: string;
@@ -49,13 +63,20 @@ export type GraphData = {
 };
 
 
-// Regex patterns capturing static/dynamic imports
+/**
+ * Matches Dart `import '...'` and `import "..."` statements.
+ * The capture group holds the raw import path (before resolution).
+ * The `gm` flags make it scan every line of the file.
+ */
 const IMPORT_PATTERN = /^\s*import\s+['"]([^'"]+)['"]/gm;
 
 /**
- * Extracts all imported modules from a file's content.
- * Only relative imports (starting with . or /) are kept —
- * external packages like 'react' or 'lodash' are ignored in the MVP.
+ * Extracts all import paths found in a Dart file's source text.
+ *
+ * Three kinds of imports exist in Dart:
+ *   - `dart:*`    — standard library (skipped by the resolver)
+ *   - `package:*` — pub packages; only same-project imports are followed
+ *   - relative    — `./` or `../` paths resolved against the importer's directory
  */
 function extractImports(content: string): string[] {
     const found = new Set<string>();
@@ -71,6 +92,18 @@ function extractImports(content: string): string[] {
     return [...found];
 }
 
+/**
+ * Resolves a raw Dart import path to a relative file path within the repo.
+ * Returns `null` when the import points outside the project (e.g. to the
+ * standard library or an external pub package).
+ *
+ * @param fromFile    - Relative path of the file that contains the import.
+ * @param importPath  - Raw string from the `import '...'` statement.
+ * @param projectName - Name field from pubspec.yaml; used to distinguish
+ *                      same-project `package:` imports from external ones.
+ * @param fileSet     - Set of all known relative file paths in the repo,
+ *                      used to verify that a resolved path actually exists.
+ */
 function resolveImport(
     fromFile: string,
     importPath: string,
@@ -78,12 +111,12 @@ function resolveImport(
     fileSet: Set<string>
 ): string | null {
 
-    // Dart standard library
+    // Dart standard library — never part of the project graph.
     if (importPath.startsWith("dart:")) {
         return null;
     }
 
-    // package: import
+    // `package:` import — only follow it if it belongs to this project.
     if (importPath.startsWith("package:")) {
         const packagePath = importPath.slice("package:".length);
 
@@ -119,6 +152,11 @@ function resolveImport(
     return null;
 }
 
+/**
+ * Checks whether a candidate `.dart` path exists in the project's file set.
+ * Appends `.dart` if the path has no extension (Dart allows omitting it).
+ * Returns `null` when the file is not found.
+ */
 function resolveDartFile(
     importPath: string,
     fileSet: Set<string>
@@ -135,11 +173,24 @@ function resolveDartFile(
     return null;
 }
 
+/**
+ * Entry point: builds the full dependency graph from a ZIP buffer.
+ *
+ * Steps:
+ *   1. Extract the ZIP to `temp/`.
+ *   2. Find the repository root directory inside the extracted folder.
+ *   3. Read `pubspec.yaml` to discover the project name.
+ *   4. Collect all file paths into a Set for fast lookup during resolution.
+ *   5. Walk the tree, parse imports, and emit nodes + edges.
+ *
+ * @returns An object with the project `name` and the graph `shape`.
+ */
 export async function buildGraph(fileContents: Buffer<ArrayBuffer>): Promise<{name: string, shape: GraphData}> {
     await extractBuffer(fileContents, OUTPUT_PATH);
 
     const tree = await readDirectories(OUTPUT_PATH);
 
+    // The ZIP always contains a single top-level directory (the repo root).
     const repository = tree.find(
         (node): node is Extract<FileNode, { type: "directory" }> =>
             node.type === "directory"
@@ -151,8 +202,7 @@ export async function buildGraph(fileContents: Buffer<ArrayBuffer>): Promise<{na
 
     const project = await readProject(repository.path);
 
-    //console.log("Project:", project.name);
-
+    // First pass: collect every file path so imports can be validated.
     const fileSet = new Set<string>();
 
     collectFiles(
@@ -161,6 +211,7 @@ export async function buildGraph(fileContents: Buffer<ArrayBuffer>): Promise<{na
         fileSet
     );
 
+    // Second pass: parse imports and build the graph.
     const data = await processFiles(
         repository.children,
         repository.path,
@@ -168,14 +219,17 @@ export async function buildGraph(fileContents: Buffer<ArrayBuffer>): Promise<{na
         fileSet
     );
 
-    //console.log(data);
-
     return {
       name: project.name,
       shape: data
     };
 }
 
+/**
+ * Recursively walks the file tree, parsing every `.dart` file it finds.
+ * Produces `NodeData` entries (one per file) and `EdgeData` entries
+ * (one per resolved import relationship).
+ */
 async function processFiles(
     nodes: FileNode[],
     repositoryRoot: string,
@@ -251,6 +305,11 @@ async function processFiles(
     };
 }
 
+/**
+ * First-pass traversal: populates `fileSet` with the relative path of
+ * every file in the repository so that `resolveImport` can verify that
+ * a resolved path actually exists before adding an edge.
+ */
 function collectFiles(
     nodes: FileNode[],
     repositoryRoot: string,
@@ -275,6 +334,12 @@ function collectFiles(
     }
 }
 
+/**
+ * Creates a `NodeData` object for a single Dart file.
+ *
+ * @param filePath      - Relative path from the repository root.
+ * @param importsNumber - Number of raw `import` statements found in the file.
+ */
 function generateNode(
     filePath: string,
     importsNumber: number
@@ -294,12 +359,20 @@ function generateNode(
     };
 }
 
+/**
+ * Removes any previous extraction, then extracts the ZIP buffer to
+ * `outputPath` using AdmZip.
+ */
 async function extractBuffer(buffer: Buffer, outputPath: string) {
     await rm("./temp", { recursive: true, force: true });
     const zip = new AdmZip(buffer);
     zip.extractAllTo(outputPath, true);
 }
 
+/**
+ * Recursively reads a directory and returns a `FileNode` tree.
+ * Directories and files are distinguished via `entry.isDirectory()`.
+ */
 async function readDirectories(directory: string): Promise<FileNode[]> {
     const entries = await readdir(directory, {
         withFileTypes: true,
@@ -329,6 +402,13 @@ async function readDirectories(directory: string): Promise<FileNode[]> {
     return nodes;
 }
 
+/**
+ * Reads `pubspec.yaml` from the given directory and extracts the project
+ * name.  Throws if the file is missing or the `name:` field is absent.
+ *
+ * The `name:` field follows the pattern:
+ *   name: my_project_name
+ */
 async function readProject(directory: string): Promise<DartProject> {
     const pubspecPath = path.join(directory, "pubspec.yaml");
 

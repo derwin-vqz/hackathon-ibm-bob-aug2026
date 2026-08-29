@@ -28,7 +28,7 @@ function nodeColor(ext: string): string {
  * Highly imported nodes appear larger and more prominent.
  */
 function nodeSize(node: NodeData): number {
-  return Math.max(20, Math.min(60, 20 + node.importedBy * 4));
+  return Math.max(20, Math.min(60, 20 + node.imports * 4));
 }
 
 type Props = {
@@ -54,7 +54,6 @@ export default function GraphView({ graph, onNodeSelect }: Props) {
           label: n.label,
           ext: n.ext,
           imports: n.imports,
-          importedBy: n.importedBy,
           color: nodeColor(n.ext),
           size: nodeSize(n),
         },

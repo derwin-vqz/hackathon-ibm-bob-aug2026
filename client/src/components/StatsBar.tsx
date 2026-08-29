@@ -5,20 +5,26 @@ type Props = {
 };
 
 /**
- * Top bar showing stats for the full graph.
- * Detects and surfaces basic modernization insights.
+ * Thin stats bar rendered below the header once a graph has been loaded.
+ *
+ * Shows at a glance:
+ *   - Total file count and dependency (edge) count.
+ *   - The node with the highest import count ("Most imported").
+ *   - Number of highly-coupled nodes (imports > 5) — shown with a warning.
+ *   - Number of isolated nodes (imports === 0, i.e. leaf files with no deps).
+ *   - A truncation notice when the repo exceeded the 200-file cap.
  */
 export default function StatsBar({ graph }: Props) {
   const { nodes, edges, truncated } = graph;
 
-  // Most imported node (highest centrality)
-  const mostImported = [...nodes].sort((a, b) => b.importedBy - a.importedBy)[0];
+  // Node with the most outgoing imports — sorted descending, first element wins.
+  const mostImported = [...nodes].sort((a, b) => b.imports - a.imports)[0];
 
-  // Highly coupled nodes (imported by more than 5 files)
-  const highlyCoupled = nodes.filter((n) => n.importedBy > 5).length;
+  // Nodes that import more than 5 other files — potential coupling hotspots.
+  const highlyCoupled = nodes.filter((n) => n.imports > 5).length;
 
-  // Isolated nodes (neither import nor are imported by anything)
-  const isolated = nodes.filter((n) => n.imports === 0 && n.importedBy === 0).length;
+  // Nodes that import nothing — leaf files with no outgoing dependencies.
+  const isolated = nodes.filter((n) => n.imports === 0).length;
 
   return (
     <div style={{

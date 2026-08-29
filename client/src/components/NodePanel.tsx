@@ -6,13 +6,22 @@ type Props = {
 };
 
 /**
- * Side panel showing details for the selected node.
- * Includes basic metrics and a centrality indicator (how widely imported).
+ * Side panel that appears when the user clicks a node in the graph.
+ *
+ * Displays:
+ *   - Full file path and short filename as the header.
+ *   - "Imports" count — how many files this node directly imports.
+ *   - "Centrality" — percentage of other nodes this one imports
+ *     (imports / (totalNodes - 1) × 100).
+ *   - Insight badges: "High coupling" when imports > 5,
+ *     "Leaf (no deps)" when imports === 0,
+ *     "Many imports" when imports > 10.
  */
 export default function NodePanel({ node, totalNodes }: Props) {
-  const centrality = totalNodes > 1 ? ((node.importedBy / (totalNodes - 1)) * 100).toFixed(1) : '0.0';
-  const isHighlyCoupled = node.importedBy > 5;
-  const isLeaf = node.imports === 0 && node.importedBy <= 1;
+  // Centrality: fraction of all other nodes that this node imports, as a %.
+  const centrality = totalNodes > 1 ? ((node.imports / (totalNodes - 1)) * 100).toFixed(1) : '0.0';
+  const isHighlyCoupled = node.imports > 5;
+  const isLeaf = node.imports === 0;
 
   return (
     <div style={{
@@ -35,7 +44,6 @@ export default function NodePanel({ node, totalNodes }: Props) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <Metric label="Imports" value={node.imports} unit="files" />
-        <Metric label="Imported by" value={node.importedBy} unit="files" />
         <Metric label="Centrality" value={`${centrality}%`} />
       </div>
 

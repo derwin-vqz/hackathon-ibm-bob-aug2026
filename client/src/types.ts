@@ -8,7 +8,6 @@ export type NodeData = {
   label: string;
   ext: string;
   imports: number;
-  importedBy: number;
 };
 
 export type EdgeData = {

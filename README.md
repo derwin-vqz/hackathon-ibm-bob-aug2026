@@ -1,13 +1,13 @@
 # Code GPS
 
-Visualizador interactivo de dependencias de repositorios GitHub.
+Interactive dependency visualizer for GitHub repositories.
 
-## Requisitos
+## Requirements
 
 - Node.js 18+
 - npm
 
-## Instalación
+## Installation
 
 ```bash
 # Backend
@@ -17,52 +17,65 @@ cd server && npm install
 cd ../client && npm install
 ```
 
-## Desarrollo
+## Development
 
-Abre **dos terminales**:
+Open **two terminals**:
 
 ```bash
-# Terminal 1 — servidor (puerto 3001)
+# Terminal 1 — server (port 3001)
 cd server && npm run dev
 
-# Terminal 2 — cliente (puerto 5173)
+# Terminal 2 — client (port 5173)
 cd client && npm run dev
 ```
 
-Luego abre http://localhost:5173
+Then open http://localhost:5173
 
-## Uso
+## Usage
 
-1. Pega una URL de repositorio GitHub (ej: `https://github.com/expressjs/express`)
-2. Haz clic en **Analizar**
-3. Explora el grafo — haz clic en cualquier nodo para ver sus dependencias directas
-4. El panel derecho muestra métricas del nodo seleccionado
+1. Paste a GitHub repository URL (e.g. `https://github.com/flutter/flutter`)
+2. Click **Analyze**
+3. Explore the graph — click any node to highlight its direct dependencies
+4. The right panel shows metrics for the selected node
 
-### Token de GitHub (opcional)
+### GitHub Token (optional)
 
-Sin token: 60 req/hora. Con token PAT: 5000 req/hora.
-Clic en 🔑 Token para ingresarlo. Solo necesita permisos de lectura pública.
+Without a token: 60 requests/hour. With a PAT: 5 000 requests/hour.
+Click **🔑 Token** to enter one. Read-only public access is sufficient.
 
-## Estructura
+## Structure
 
 ```
 server/
   src/
-    index.ts      — Express API
-    github.ts     — GitHub API helpers
-    analyzer.ts   — Extracción de dependencias
+    index.ts            — Express API (GET /api/repo)
+    github-ingester.ts  — Downloads a GitHub repo as a ZIP via codeload
+    analyzer.ts         — Extracts the ZIP, parses Dart imports, builds graph
 client/
   src/
-    App.tsx                    — UI principal
-    types.ts                   — Tipos compartidos
+    App.tsx             — Main UI: form, state machine, layout
+    types.ts            — Shared TypeScript types (NodeData, EdgeData, GraphData)
     components/
-      GraphView.tsx            — Grafo Cytoscape.js
-      NodePanel.tsx            — Panel de nodo seleccionado
-      StatsBar.tsx             — Métricas e insights
+      GraphView.tsx     — Interactive Cytoscape.js graph canvas
+      NodePanel.tsx     — Details panel for the selected node
+      StatsBar.tsx      — Global graph metrics (file count, coupling, etc.)
 ```
 
-## Límites MVP
+## How it works
 
-- Máximo 200 archivos por repositorio
-- Solo analiza imports relativos (no deps externas como `react`, `lodash`)
-- Solo soporta TypeScript/JavaScript (.ts, .tsx, .js, .jsx, .mjs, .cjs)
+1. The client sends `GET /api/repo?repo=<url>` to the backend.
+2. The backend downloads the repository as a ZIP archive from GitHub's
+   codeload service (`codeload.github.com/{owner}/{repo}/zip/HEAD`).
+3. The analyzer extracts the ZIP, walks the file tree, and reads every
+   `.dart` file.
+4. Import statements are parsed and resolved against the project's own
+   file set (standard library and external packages are excluded).
+5. The resulting `GraphData` — nodes (files) and edges (imports) — is
+   returned as JSON and rendered in the browser.
+
+## Current limitations
+
+- Only **Dart** repositories are supported (requires a `pubspec.yaml`).
+- Only `dart:*`, `package:<own-project>/*`, and relative imports are
+  resolved; imports from external pub packages are ignored.
+- No file count cap is enforced yet (`truncated` is always `false`).
