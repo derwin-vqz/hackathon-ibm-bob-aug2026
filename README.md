@@ -1,6 +1,10 @@
-# Code GPS
+<div align="center">
+
+# 🕸️💻 WEB Code 🕷️🕸️
 
 Interactive dependency visualizer for GitHub repositories.
+
+<div align="justify">
 
 ## Requirements
 
@@ -38,6 +42,10 @@ Then open http://localhost:5173
 3. Explore the graph — click any node to highlight its direct neighbours
 4. The right panel shows metrics for the selected node
 
+<picture>
+  <img alt="A graph view of imports between modules." src="docs/image_02.png" width="900">
+</picture>
+
 ### Path Finder (Spider mode)
 
 Right-click any node to open its context menu, then choose:
@@ -48,6 +56,14 @@ Once both are placed, every directed path from source to target is highlighted
 with animated dashed lines. The **Path Finder** panel in the top-left shows
 how many paths were found, or a "No directed path" message if none exist.
 Right-clicking a new node replaces the placement.
+
+<picture>
+  <img alt="Right-click to open the route panel for the selected source or target node." src="docs/image_04.png" width="900">
+</picture>
+
+<picture>
+  <img alt="Graph view of path from a source module to a target module." src="docs/image_05.png" width="900">
+</picture>
 
 ### GitHub Token (optional)
 
@@ -99,3 +115,7 @@ client/
 - Only `dart:*`, `package:<own-project>/*`, and relative imports are
   resolved; imports from external pub packages are ignored.
 - No file count cap is enforced yet (`truncated` is always `false`).
+
+---
+</div>
+<div align="center"><sub>Derwin Vazquez 😎</sub></div>

@@ -166,7 +166,7 @@ export default function App() {
         flexWrap: 'wrap',
       }}>
         <span style={{ fontWeight: 700, fontSize: 16, color: '#58a6ff', flexShrink: 0 }}>
-          🕸️ Code Network
+          🕷️ Code Web 🕸️
         </span>
 
         <input
