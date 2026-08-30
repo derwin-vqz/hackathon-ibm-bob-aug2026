@@ -1,26 +1,70 @@
+/**
+ * SpiderOverlay — draggable spider icons used as path-finder endpoints.
+ *
+ * Renders two draggable emoji elements as absolute-positioned overlays on top
+ * of the Cytoscape canvas:
+ *   - 🕷 Black spider (source) — home position: bottom-left corner.
+ *   - 🕸 White spider (target) — home position: bottom-right corner.
+ *
+ * Drag behaviour (pointer events):
+ *   - On `pointerdown`, the element captures the pointer so `pointermove` and
+ *     `pointerup` are reliably received even if the pointer leaves the element.
+ *   - On `pointermove`, the spider follows the cursor.
+ *   - On `pointerup`, the component calls `cy.elementFromPoint` to detect
+ *     whether a graph node is under the cursor.
+ *     - Hit: calls `onSourcePlace` / `onTargetPlace` with the node ID and
+ *       leaves the spider at the drop position.
+ *     - Miss: snaps the spider back to its home corner and calls the callback
+ *       with `null` to clear the placement.
+ *
+ * NOTE: This component is currently unused — spider placement has been
+ * integrated directly into GraphView via its right-click context menu.
+ * It is kept here as a standalone alternative implementation.
+ */
 import { useCallback, useRef, useState } from 'react';
 import type React from 'react';
 import type cytoscape from 'cytoscape';
 
+/** Props accepted by SpiderOverlay. */
 type Props = {
+  /** Ref to the live Cytoscape instance used for hit-testing on drop. */
   cyRef: React.RefObject<cytoscape.Core | null>;
+  /** Called with the node ID when the source spider is dropped on a node, or `null` on miss. */
   onSourcePlace: (nodeId: string | null) => void;
+  /** Called with the node ID when the target spider is dropped on a node, or `null` on miss. */
   onTargetPlace: (nodeId: string | null) => void;
+  /** Optional short label displayed beneath the source spider when placed. */
   sourceLabel?: string;
+  /** Optional short label displayed beneath the target spider when placed. */
   targetLabel?: string;
 };
 
+/** Identifies which of the two spiders is being dragged. */
 type SpiderKind = 'source' | 'target';
 
+/**
+ * Snapshot captured on `pointerdown` to track drag delta and restore position
+ * on a miss-drop.
+ */
 interface DragState {
+  /** Which spider is being dragged. */
   kind: SpiderKind;
+  /** Client X when the drag started. */
   startX: number;
+  /** Client Y when the drag started. */
   startY: number;
+  /** Spider's absolute X position when the drag started. */
   originX: number;
+  /** Spider's absolute Y position when the drag started. */
   originY: number;
+  /** Pointer ID used to release pointer capture. */
   pointerId: number;
 }
 
+/**
+ * Absolute CSS-pixel position of a spider overlay.
+ * `null` values mean the spider is at its home (corner) position.
+ */
 interface SpiderPos {
   x: number | null;
   y: number | null;

@@ -35,8 +35,19 @@ Then open http://localhost:5173
 
 1. Paste a GitHub repository URL (e.g. `https://github.com/flutter/flutter`)
 2. Click **Analyze**
-3. Explore the graph — click any node to highlight its direct dependencies
+3. Explore the graph — click any node to highlight its direct neighbours
 4. The right panel shows metrics for the selected node
+
+### Path Finder (Spider mode)
+
+Right-click any node to open its context menu, then choose:
+- **Set as source** — places the white spider 🕷 on that node.
+- **Set as target** — places the yellow spider 🕷 on that node.
+
+Once both are placed, every directed path from source to target is highlighted
+with animated dashed lines. The **Path Finder** panel in the top-left shows
+how many paths were found, or a "No directed path" message if none exist.
+Right-clicking a new node replaces the placement.
 
 ### GitHub Token (optional)
 
@@ -48,16 +59,22 @@ Click **🔑 Token** to enter one. Read-only public access is sufficient.
 ```
 server/
   src/
-    index.ts            — Express API (GET /api/repo)
+    index.ts            — Express API (GET /api/repo, GET /api/health)
     github-ingester.ts  — Downloads a GitHub repo as a ZIP via codeload
+    github.ts           — GitHub REST API helpers (Trees + Contents; used by
+                          the commented-out /api/analyze endpoint)
     analyzer.ts         — Extracts the ZIP, parses Dart imports, builds graph
 client/
   src/
-    App.tsx             — Main UI: form, state machine, layout
+    App.tsx             — Root component: form, state machine, layout
     types.ts            — Shared TypeScript types (NodeData, EdgeData, GraphData)
+    utils/
+      findAllPaths.ts   — DFS path-finder: all directed paths between two nodes
     components/
-      GraphView.tsx     — Interactive Cytoscape.js graph canvas
+      GraphView.tsx     — Interactive Cytoscape.js graph canvas + spider overlays
       NodePanel.tsx     — Details panel for the selected node
+      PathPanel.tsx     — Path Finder status panel (top-left)
+      SpiderOverlay.tsx — Draggable spider overlay (alternative implementation)
       StatsBar.tsx      — Global graph metrics (file count, coupling, etc.)
 ```
 
@@ -72,6 +89,9 @@ client/
    file set (standard library and external packages are excluded).
 5. The resulting `GraphData` — nodes (files) and edges (imports) — is
    returned as JSON and rendered in the browser.
+6. The user can activate the path-finder by right-clicking two nodes.
+   `findAllPaths` runs a client-side DFS over `GraphData.edges` and the
+   result is highlighted directly in the graph canvas.
 
 ## Current limitations
 

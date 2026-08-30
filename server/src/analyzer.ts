@@ -428,6 +428,16 @@ async function readProject(directory: string): Promise<DartProject> {
     };
 }
 
+/**
+ * Recursively searches the extracted file tree for the Dart project root —
+ * the first directory that contains a `pubspec.yaml` file.
+ *
+ * The hard-coded path exclusion (`crystal_navigation_bar`) prevents the
+ * resolver from treating an embedded dependency's pubspec as the project root
+ * when analysing repositories that vendor their dependencies in a subdirectory.
+ *
+ * Returns `null` when no matching directory is found (e.g. not a Dart repo).
+ */
 function findProjectRoot(
     nodes: FileNode[]
 ): Extract<FileNode, { type: "directory" }> | null {

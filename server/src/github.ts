@@ -1,27 +1,49 @@
 /**
- * GitHub API helpers
+ * GitHub REST API helpers (Trees + Contents).
+ *
+ * NOTE: These helpers are used only by the commented-out `/api/analyze`
+ * endpoint in `index.ts`, which fetches individual file contents via the
+ * GitHub Contents API.  The active `/api/repo` endpoint uses
+ * `github-ingester.ts` (codeload ZIP download) instead.
  *
  * TS concept: `interface` defines the shape of an object — a contract that any
  * value claiming to be a `GitHubFile` must satisfy exactly.
  */
 
+/** A single entry returned by GitHub's Git Trees API. */
 export interface GitHubFile {
+  /** Repository-relative file path (e.g. `"lib/main.dart"`). */
   path: string;
+  /** `'blob'` for files, `'tree'` for directories. */
   type: 'blob' | 'tree';
+  /** Git object SHA for this entry. */
   sha: string;
 }
 
+/** Shape of the GitHub Git Trees API response (`?recursive=1`). */
 interface TreeResponse {
   tree: GitHubFile[];
+  /** `true` when the tree was truncated by GitHub (too many entries). */
   truncated: boolean;
 }
 
-// File types we want to analyze
+/** Regex matching the file extensions analysed by the TypeScript/JS pipeline. */
 const SUPPORTED_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
+
+/**
+ * Regex matching paths that should be excluded from analysis.
+ * Covers generated artefacts, test directories, and Git internals.
+ */
 const IGNORE_PATHS = /(node_modules|dist|build|\.next|coverage|__tests__|\.git)/;
 
+/** Maximum number of files fetched from the repository tree per request. */
 const FILE_LIMIT = 200;
 
+/**
+ * Returns the HTTP headers required for GitHub API requests.
+ * Adds a Bearer token when provided, raising the rate limit from
+ * 60 to 5 000 requests per hour.
+ */
 function githubHeaders(token?: string): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',

@@ -1,3 +1,19 @@
+/**
+ * GraphView — interactive Cytoscape.js dependency graph canvas.
+ *
+ * Responsibilities:
+ *   - Renders the graph using a dagre (top-to-bottom) layout.
+ *   - Colours nodes on a blue→red gradient based on their import count.
+ *   - Handles left-click (neighbourhood highlight) and right-click
+ *     (context menu to place source / target spiders).
+ *   - Accepts an optional `pathHighlight` prop and applies the
+ *     `path-highlight` CSS class + an animated dashed-line effect to all
+ *     nodes and edges that belong to a found path.
+ *   - Renders HTML spider icon overlays that track the placed source and
+ *     target nodes as the user pans and zooms.
+ *   - Exposes the live Cytoscape instance to its parent via a forwarded ref
+ *     (`GraphViewHandle`) so ZoomControls can drive zoom/pan externally.
+ */
 import cytoscape from 'cytoscape';
 // @ts-ignore — cytoscape-dagre has no perfect types but works fine
 import dagre from 'cytoscape-dagre';
@@ -9,6 +25,14 @@ cytoscape.use(dagre);
 /** Fixed display size for the spider HTML overlay, in CSS pixels. */
 const SPIDER_SIZE = 48;
 
+/**
+ * Maps a node's import count to an RGB colour on a blue→red gradient.
+ * The node with the most imports (`maxImports`) renders as full red;
+ * a node with zero imports renders as green (no gradient pressure).
+ *
+ * @param imports    - Number of imports for this node.
+ * @param maxImports - Highest import count in the current graph.
+ */
 function nodeColor(imports: number, maxImports: number): string {
   if (maxImports === 0) {
     return '#22c55e';
@@ -29,13 +53,22 @@ function nodeSize(node: NodeData): number {
   return Math.max(50, Math.min(120, 20 + node.imports * 4));
 }
 
+/** Props accepted by the GraphView component. */
 type Props = {
+  /** Full graph data to render. Changing this value rebuilds the Cytoscape instance. */
   graph: GraphData;
+  /** Called with the clicked node's data, or `null` when the background is clicked. */
   onNodeSelect: (node: NodeData | null) => void;
   /** Called when the user right-clicks a node and picks "Set as source". */
   onSourcePlace: (nodeId: string | null) => void;
   /** Called when the user right-clicks a node and picks "Set as target". */
   onTargetPlace: (nodeId: string | null) => void;
+  /**
+   * Optional path highlight data produced by `findAllPaths`.
+   * When present, matching nodes and edges receive the `path-highlight` class
+   * and the animated dashed-line effect is started.
+   * `null` / `undefined` clears all path highlights.
+   */
   pathHighlight?: { nodeIds: Set<string>; edgeKeys: Set<string> } | null;
   /** ID of the node currently marked as the path source (white spider). */
   sourceNodeId?: string | null;
@@ -50,12 +83,18 @@ export type GraphViewHandle = {
 
 /** Position + node ID for the floating right-click context menu. */
 type ContextMenuState = {
+  /** CSS-pixel X coordinate relative to the Cytoscape container. */
   x: number;
+  /** CSS-pixel Y coordinate relative to the Cytoscape container. */
   y: number;
+  /** ID of the node that was right-clicked. */
   nodeId: string;
 };
 
-/** Screen-space position of a placed spider, in CSS pixels relative to the container. */
+/**
+ * Rendered (CSS-pixel) position of a placed spider overlay, relative to the
+ * Cytoscape container div.  `null` means the spider is not currently placed.
+ */
 type SpiderPos = { x: number; y: number } | null;
 
 const GraphView = forwardRef<GraphViewHandle, Props>(function GraphView(
@@ -344,6 +383,7 @@ export default GraphView;
 
 // ─── Zoom controls ────────────────────────────────────────────────────────
 
+/** Discrete zoom levels available in the level selector drop-down. */
 const ZOOM_LEVELS = [1.5, 1.25, 1, 0.75, 0.5, 0.25];
 
 /**
@@ -454,14 +494,25 @@ function ZoomBtn({
 
 // ─── Context menu ─────────────────────────────────────────────────────────
 
+/** Props for the floating right-click context menu. */
 type NodeContextMenuProps = {
+  /** CSS-pixel X position (from `node.renderedPosition()`). */
   x: number;
+  /** CSS-pixel Y position (from `node.renderedPosition()`). */
   y: number;
+  /** Called when the user selects "Set as source". */
   onSetSource: () => void;
+  /** Called when the user selects "Set as target". */
   onSetTarget: () => void;
+  /** Called when the user clicks outside the menu. */
   onClose: () => void;
 };
 
+/**
+ * Minimal floating context menu rendered as an absolute-positioned div
+ * inside the Cytoscape container.  An invisible full-area backdrop closes
+ * the menu when the user clicks outside it.
+ */
 function NodeContextMenu({ x, y, onSetSource, onSetTarget, onClose }: NodeContextMenuProps) {
   return (
     <>
@@ -496,6 +547,12 @@ function NodeContextMenu({ x, y, onSetSource, onSetTarget, onClose }: NodeContex
   );
 }
 
+/**
+ * Single interactive row inside the context menu.
+ * Uses `onPointerDown` instead of `onClick` to avoid a race condition
+ * where the backdrop's `onPointerDown` fires first and unmounts the menu
+ * before the `click` event is dispatched.
+ */
 function ContextMenuItem({ onPointerDown, children }: { onPointerDown: () => void; children: React.ReactNode }) {
   return (
     <button
