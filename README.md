@@ -118,4 +118,4 @@ client/
 
 ---
 </div>
-<div align="center"><sub>Derwin Vazquez 😎</sub></div>
+<div align="center"><sub>&lt;/&gt; Derwin Vazquez 😎</sub></div>
