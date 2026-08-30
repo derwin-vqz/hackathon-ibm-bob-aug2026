@@ -186,6 +186,8 @@ export default function App() {
               onSourcePlace={setSourceNodeId}
               onTargetPlace={setTargetNodeId}
               pathHighlight={pathHighlight}
+              sourceNodeId={sourceNodeId}
+              targetNodeId={targetNodeId}
             />
             {selectedNode && (
               <NodePanel node={selectedNode} totalNodes={graph.nodes.length} />
