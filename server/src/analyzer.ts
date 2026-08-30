@@ -108,7 +108,7 @@ function resolveImport(
     fromFile: string,
     importPath: string,
     projectName: string,
-    fileSet: Set<string>
+    fileSet: Map<string, string>
 ): string | null {
 
     // Dart standard library — never part of the project graph.
@@ -159,18 +159,16 @@ function resolveImport(
  */
 function resolveDartFile(
     importPath: string,
-    fileSet: Set<string>
+    fileSet: Map<string, string>
 ): string | null {
 
     const normalizedPath = importPath.endsWith(".dart")
         ? importPath
         : `${importPath}.dart`;
 
-    if (fileSet.has(normalizedPath)) {
-        return normalizedPath;
-    }
-
-    return null;
+    return fileSet.get(
+        normalizedPath.toLowerCase()
+    ) ?? null;
 }
 
 /**
@@ -190,31 +188,28 @@ export async function buildGraph(fileContents: Buffer<ArrayBuffer>): Promise<{na
 
     const tree = await readDirectories(OUTPUT_PATH);
 
-    // The ZIP always contains a single top-level directory (the repo root).
-    const repository = tree.find(
-        (node): node is Extract<FileNode, { type: "directory" }> =>
-            node.type === "directory"
-    );
+    const projectRoot = findProjectRoot(tree);
 
-    if (!repository) {
-        throw new Error("Repository root not found");
+    if (!projectRoot) {
+        throw new Error("Dart project root not found");
     }
 
-    const project = await readProject(repository.path);
+    const project = await readProject(projectRoot.path);
 
     // First pass: collect every file path so imports can be validated.
-    const fileSet = new Set<string>();
+    const fileSet = new Map<string, string>();
 
     collectFiles(
-        repository.children,
-        repository.path,
+        projectRoot.children,
+        projectRoot.path,
         fileSet
     );
+    console.log(projectRoot.path);
 
     // Second pass: parse imports and build the graph.
     const data = await processFiles(
-        repository.children,
-        repository.path,
+        projectRoot.children,
+        projectRoot.path,
         project.name,
         fileSet
     );
@@ -234,7 +229,7 @@ async function processFiles(
     nodes: FileNode[],
     repositoryRoot: string,
     projectName: string,
-    fileSet: Set<string>
+    fileSet: Map<string, string>
 ): Promise<GraphData> {
 
     const nodesTree: NodeData[] = [];
@@ -313,7 +308,7 @@ async function processFiles(
 function collectFiles(
     nodes: FileNode[],
     repositoryRoot: string,
-    fileSet: Set<string>
+    fileSet: Map<string, string>
 ) {
     for (const node of nodes) {
         if (node.type === "directory") {
@@ -330,7 +325,10 @@ function collectFiles(
             .split(path.sep)
             .join("/");
 
-        fileSet.add(relativePath);
+        fileSet.set(
+            relativePath.toLowerCase(),
+            relativePath
+        );
     }
 }
 
@@ -349,7 +347,7 @@ function generateNode(
     const extension = path.posix.extname(fileName);
 
     return {
-        id: filePath,
+        id: filePath.toLowerCase(),
         label: fileName.slice(
             0,
             fileName.length - extension.length
@@ -423,4 +421,34 @@ async function readProject(directory: string): Promise<DartProject> {
     return {
         name: match[1],
     };
+}
+
+function findProjectRoot(
+    nodes: FileNode[]
+): Extract<FileNode, { type: "directory" }> | null {
+
+    for (const node of nodes) {
+
+        if (node.type === "directory") {
+
+            const hasPubspec = node.children.some(
+                child =>
+                    child.type === "file" &&
+                    child.name === "pubspec.yaml"
+            );
+
+            if (hasPubspec && node.path != 'temp\\OriginaGO-HEAD\\crystal_navigation_bar') {
+                console.log(node.path);
+                return node;
+            }
+
+            const result = findProjectRoot(node.children);
+
+            if (result) {
+                return result;
+            }
+        }
+    }
+
+    return null;
 }

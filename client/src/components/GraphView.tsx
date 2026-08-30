@@ -9,18 +9,20 @@ cytoscape.use(dagre);
 /**
  * Color palette by file extension
  */
-const EXT_COLORS: Record<string, string> = {
-  ts: '#3b82f6',
-  tsx: '#8b5cf6',
-  js: '#f59e0b',
-  jsx: '#f97316',
-  mjs: '#10b981',
-  cjs: '#6b7280',
-};
 const DEFAULT_COLOR = '#6b7280';
 
-function nodeColor(ext: string): string {
-  return EXT_COLORS[ext] ?? DEFAULT_COLOR;
+function nodeColor(imports: number, maxImports: number): string {
+  if (maxImports === 0) {
+    return '#22c55e';
+  }
+
+  const ratio = imports / maxImports;
+
+  const red = Math.round(255 * ratio);
+  const green = 0; //255 - Math.round(255 * ratio);
+  const blue = 255 - Math.round(255 * ratio); //Math.round(94 + (68 - 94) * ratio);
+
+  return `rgb(${red}, ${green}, ${blue})`;
 }
 
 /**
@@ -43,6 +45,11 @@ export default function GraphView({ graph, onNodeSelect }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const maxImports = Math.max(
+      ...graph.nodes.map(node => node.imports),
+      0
+    );
+
     // Build Cytoscape elements from our graph
     // Cytoscape expects: { data: { id, label, ... } } for nodes
     //                    { data: { source, target } }  for edges
@@ -54,7 +61,7 @@ export default function GraphView({ graph, onNodeSelect }: Props) {
           label: n.label,
           ext: n.ext,
           imports: n.imports,
-          color: nodeColor(n.ext),
+          color: nodeColor(n.imports, maxImports),
           size: nodeSize(n),
         },
       })),
@@ -88,6 +95,11 @@ export default function GraphView({ graph, onNodeSelect }: Props) {
             'text-outline-color': '#0f1117',
             'text-outline-width': 2,
             'border-width': 0,
+            // --- brillo ---
+            'underlay-color': 'data(color)',   // color del brillo (puede ser fijo también, ej '#00ffff')
+            'underlay-opacity': 0.5,           // qué tan intenso se ve
+            'underlay-padding': 8,             // tamaño del brillo (más padding = más grande)
+            'underlay-shape': 'ellipse',       // forma del halo: 'ellipse' o 'round-rectangle'
           },
         },
         {
@@ -167,7 +179,7 @@ export default function GraphView({ graph, onNodeSelect }: Props) {
   return (
     <div
       ref={containerRef}
-      style={{ flex: 1, width: '100%', background: '#0f1117' }}
+      style={{ flex: 1, width: '100%', height: '100%', background: '#0f1117' }}
     />
   );
 }

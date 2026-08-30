@@ -30,7 +30,8 @@ export default function App() {
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error ?? 'Unknown error');
-      setGraph(data as GraphData);
+      
+      setGraph(data.shape as GraphData);
       setStatus('done');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
@@ -51,7 +52,7 @@ export default function App() {
         flexWrap: 'wrap',
       }}>
         <span style={{ fontWeight: 700, fontSize: 16, color: '#58a6ff', flexShrink: 0 }}>
-          📍 Code GPS
+          🕸️ Code Network
         </span>
 
         <input
@@ -123,7 +124,6 @@ export default function App() {
             {selectedNode && (
               <NodePanel node={selectedNode} totalNodes={graph.nodes.length} />
             )}
-            <Legend />
           </>
         )}
       </div>
@@ -160,43 +160,6 @@ function Spinner() {
       borderRadius: '50%',
       animation: 'spin 0.7s linear infinite',
     }} />
-  );
-}
-
-function Legend() {
-  const items = [
-    { color: '#3b82f6', label: '.ts' },
-    { color: '#8b5cf6', label: '.tsx' },
-    { color: '#f59e0b', label: '.js' },
-    { color: '#f97316', label: '.jsx' },
-  ];
-  return (
-    <div style={{
-      position: 'absolute',
-      bottom: 16,
-      left: 16,
-      background: '#161b22cc',
-      border: '1px solid #30363d',
-      borderRadius: 6,
-      padding: '8px 12px',
-      display: 'flex',
-      gap: 12,
-      fontSize: 11,
-      backdropFilter: 'blur(4px)',
-    }}>
-      {items.map((item) => (
-        <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{
-            width: 10, height: 10, borderRadius: '50%',
-            background: item.color, display: 'inline-block',
-          }} />
-          {item.label}
-        </div>
-      ))}
-      <span style={{ color: '#8b949e', borderLeft: '1px solid #30363d', paddingLeft: 12 }}>
-        Size = popularity
-      </span>
-    </div>
   );
 }
 
