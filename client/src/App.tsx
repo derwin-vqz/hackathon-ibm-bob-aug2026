@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import GraphView from './components/GraphView';
+import type { GraphViewHandle } from './components/GraphView';
 import NodePanel from './components/NodePanel';
+import PathPanel from './components/PathPanel';
 import StatsBar from './components/StatsBar';
 import type { GraphData, NodeData } from './types';
+import { findAllPaths } from './utils/findAllPaths';
 
 type Status = 'idle' | 'loading' | 'done' | 'error';
+
+/** Shape passed to GraphView once paths are computed. */
+type PathHighlight = { nodeIds: Set<string>; edgeKeys: Set<string> };
 
 export default function App() {
   const [repoUrl, setRepoUrl] = useState('');
@@ -15,12 +21,24 @@ export default function App() {
   const [selectedNode, setSelectedNode] = useState<NodeData | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Spider state — null means "not placed yet"
+  const [sourceNodeId, setSourceNodeId] = useState<string | null>(null);
+  const [targetNodeId, setTargetNodeId] = useState<string | null>(null);
+  const [pathHighlight, setPathHighlight] = useState<PathHighlight | null>(null);
+
+  // Ref to the live Cytoscape instance, lifted from GraphView via forwardRef.
+  const graphViewRef = useRef<GraphViewHandle>(null);
+
   async function handleAnalyze() {
     if (!repoUrl.trim()) return;
     setStatus('loading');
     setGraph(null);
     setSelectedNode(null);
     setErrorMsg('');
+    // Reset spider state when loading a new graph.
+    setSourceNodeId(null);
+    setTargetNodeId(null);
+    setPathHighlight(null);
 
     try {
       const params = new URLSearchParams({ repo: repoUrl.trim() });
@@ -38,6 +56,50 @@ export default function App() {
       setStatus('error');
     }
   }
+
+  // Recompute path highlights whenever either spider ID or the graph changes.
+  useEffect(() => {
+    if (!graph || !sourceNodeId || !targetNodeId) {
+      setPathHighlight(null);
+      return;
+    }
+
+    const paths = findAllPaths(graph.edges, sourceNodeId, targetNodeId);
+
+    if (paths.length === 0) {
+      // Signal "computed, no path" without any highlight.
+      setPathHighlight({ nodeIds: new Set(), edgeKeys: new Set() });
+      return;
+    }
+
+    const nodeIds = new Set<string>();
+    const edgeKeys = new Set<string>();
+
+    for (const path of paths) {
+      for (let i = 0; i < path.length; i++) {
+        nodeIds.add(path[i]);
+        if (i + 1 < path.length) {
+          edgeKeys.add(`${path[i]}->${path[i + 1]}`);
+        }
+      }
+    }
+
+    setPathHighlight({ nodeIds, edgeKeys });
+  }, [sourceNodeId, targetNodeId, graph]);
+
+  // Derive the path count for PathPanel: null = not yet computed.
+  const pathCount =
+    pathHighlight === null && sourceNodeId && targetNodeId
+      ? null
+      : pathHighlight
+        ? pathHighlight.nodeIds.size === 0
+          ? 0
+          : pathHighlight.edgeKeys.size + 1  // rough approximation for display
+        : null;
+
+  // Look up full NodeData from IDs for labels.
+  const sourceNode = graph?.nodes.find((n) => n.id === sourceNodeId) ?? null;
+  const targetNode = graph?.nodes.find((n) => n.id === targetNodeId) ?? null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -118,12 +180,21 @@ export default function App() {
         {status === 'done' && graph && (
           <>
             <GraphView
+              ref={graphViewRef}
               graph={graph}
               onNodeSelect={setSelectedNode}
+              onSourcePlace={setSourceNodeId}
+              onTargetPlace={setTargetNodeId}
+              pathHighlight={pathHighlight}
             />
             {selectedNode && (
               <NodePanel node={selectedNode} totalNodes={graph.nodes.length} />
             )}
+            <PathPanel
+              sourceNode={sourceNode}
+              targetNode={targetNode}
+              pathCount={pathCount}
+            />
           </>
         )}
       </div>
