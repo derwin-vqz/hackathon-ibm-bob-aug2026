@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import GraphView from './components/GraphView';
+import GraphView, { ZoomControls } from './components/GraphView';
 import type { GraphViewHandle } from './components/GraphView';
 import NodePanel from './components/NodePanel';
 import PathPanel from './components/PathPanel';
@@ -197,6 +197,7 @@ export default function App() {
               targetNode={targetNode}
               pathCount={pathCount}
             />
+            <ZoomControls cyRef={graphViewRef} />
           </>
         )}
       </div>
