@@ -166,9 +166,14 @@ function resolveDartFile(
         ? importPath
         : `${importPath}.dart`;
 
+    const key = normalizedPath.toLowerCase();
+
+    return fileSet.has(key) ? key : null;
+    /*
     return fileSet.get(
         normalizedPath.toLowerCase()
     ) ?? null;
+    */
 }
 
 /**
